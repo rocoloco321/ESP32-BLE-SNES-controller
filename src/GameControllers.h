@@ -2,7 +2,7 @@
 #include <Arduino.h>
 
 #pragma once
-const int MAX_CONTROLLERS = 4;
+const int MAX_CONTROLLERS = 1;
   
 class GameControllers
 {

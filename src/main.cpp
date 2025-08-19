@@ -33,19 +33,21 @@ const int CLOCK_PIN = 4;
 const int DATA_PIN_0 = 15; 
 
 int dPad_behaveAsStick = false;
+int keyComboCooldown = 0;
 
 GameControllers controllers;
 BleGamepad bleGamepad("ESP32 SNES Gamepad", "Espressif", 100);
 
 void setup() {
-  Serial.begin(115200);
-  Serial.println("Starting BLE gamepad");
+  //Serial.begin(115200);
+  //Serial.println("Starting BLE gamepad");
 
   controllers.init(LATCH_PIN, CLOCK_PIN); 
   controllers.setController(0, GameControllers::SNES, DATA_PIN_0);
 
   BleGamepadConfiguration config;
-  config.setButtonCount(10);
+  //config.setButtonCount(10);
+  config.setAutoReport(false);
   config.setHatSwitchCount(1);
   config.setWhichAxes(true, true, false, false, false, false, false, false);
   config.setAxesMin(0);
@@ -60,6 +62,23 @@ void handleButtonPress(int controllerIndex, GameControllers::Button button, int 
   } else {
     bleGamepad.release(bleButton);
   }
+}
+
+void handleModeSwitch()
+{
+  if(keyComboCooldown > 0) //Add a cooldown to the modeswitch keycombo
+  {
+    keyComboCooldown--;
+    return;
+  }
+
+  if(controllers.down(0, GameControllers::L) 
+    && controllers.down(0, GameControllers::DOWN)
+    && controllers.down(0, GameControllers::SELECT)) //Check for L + DOWN + SELECT to switch DPad Modes
+    {
+      dPad_behaveAsStick = (dPad_behaveAsStick + 1) % 2;
+      keyComboCooldown = 60;
+    }
 }
 
 int getDpadBitMap(void)
@@ -89,12 +108,35 @@ void handleDPadPress(int bitMap)
   bleGamepad.setHat1(DpadBitmapTrans[bitMap]);
 }
 
+void handleLeftStick(int bitMap)
+{
+  int x = 1;
+  int y = 1;
+  if(bitMap & DPAD_BITMAP_FLAG_LEFT)
+  {
+    x = 0;
+  }
+  else if(bitMap & DPAD_BITMAP_FLAG_RIGHT)
+  {
+    x = 2;
+  } 
+  if(bitMap & DPAD_BITMAP_FLAG_DOWN)
+  {
+    y = 2;
+  }
+  else if(bitMap & DPAD_BITMAP_FLAG_UP)
+  {
+    y = 0;
+  }
+  bleGamepad.setLeftThumb(x, y);
+}
+
 void loop() {
   controllers.poll(); //read all controllers at once
 
   if (!bleGamepad.isConnected())
     {
-      Serial.println("BLE gamepad not connected");
+      //Serial.println("BLE gamepad not connected");
       delay(500);
       return;
     }
@@ -102,18 +144,31 @@ void loop() {
   // A/B/X/Y buttons
   handleButtonPress(0, GameControllers::A, BUTTON_1);
   handleButtonPress(0, GameControllers::B, BUTTON_2);
-  handleButtonPress(0, GameControllers::X, BUTTON_3);
-  handleButtonPress(0, GameControllers::Y, BUTTON_4);
+  handleButtonPress(0, GameControllers::X, BUTTON_4);
+  handleButtonPress(0, GameControllers::Y, BUTTON_5);
 
   // L1/R1 buttons
-  handleButtonPress(0, GameControllers::L, BUTTON_5);
-  handleButtonPress(0, GameControllers::R, BUTTON_6);
+  handleButtonPress(0, GameControllers::L, BUTTON_7);
+  handleButtonPress(0, GameControllers::R, BUTTON_8);
 
   // Start/Select buttons
-  handleButtonPress(0, GameControllers::START, BUTTON_9);
-  handleButtonPress(0, GameControllers::SELECT, BUTTON_10);
+  handleButtonPress(0, GameControllers::START, BUTTON_12);
+  handleButtonPress(0, GameControllers::SELECT, BUTTON_11);
 
   // DPAD
-  handleDPadPress(getDpadBitMap());
-  bleGamepad.setLeftThumb(1, 1);
+  handleModeSwitch();
+  int bitMap = getDpadBitMap();
+  if(!dPad_behaveAsStick)
+  {
+    handleDPadPress(bitMap);
+    bleGamepad.setLeftThumb(1, 1);
+  }
+  else
+  {
+    bleGamepad.setHat1(DPAD_CENTERED);
+    handleLeftStick(bitMap);
+  }
+  bleGamepad.sendReport();
+//Add a small delay to prevent an issue where the left stick would randomly go to the top left and every button would be released for a split second
+  delay(10); 
 }
